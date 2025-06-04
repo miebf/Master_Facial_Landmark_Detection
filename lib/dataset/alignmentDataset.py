@@ -43,7 +43,7 @@ class AlignmentDataset(Dataset):
         assert self.image_width == self.image_height
         
         self.means = means
-        self.scale = scale
+        self.scale = scale  
         
         self.aug_prob = aug_prob
         self.edge_info = edge_info

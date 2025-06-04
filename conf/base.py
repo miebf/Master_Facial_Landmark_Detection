@@ -21,15 +21,15 @@ class Base:
 
         #data
         self.train_tsv_file = os.path.join(self.data_dir, "train.tsv")
-        self.train_pic_dir  = os.path.join(self.data_dir, "images/")
+        self.train_pic_dir  = os.path.join(self.data_dir, "rawImages/")#images
         self.train_num_workers = 0
 
         self.val_tsv_file   = os.path.join(self.data_dir, "val.tsv")
-        self.val_pic_dir    = os.path.join(self.data_dir, "images/")
+        self.val_pic_dir    = os.path.join(self.data_dir, "rawImages/")#images
         self.val_num_workers = 0
 
         self.test_tsv_file  = os.path.join(self.data_dir, "test.tsv")
-        self.test_pic_dir   = os.path.join(self.data_dir, "images/")
+        self.test_pic_dir   = os.path.join(self.data_dir, "rawImages/")#images
         self.test_num_workers = 0
 
         self.debug = False
@@ -37,7 +37,7 @@ class Base:
         self.loader_type = "alignment"
 
         #train
-        self.batch_size = 32
+        self.batch_size = 32  #test 32 ###########################################################################################################################
         self.val_batch_size = 1
         self.test_batch_size = 1
         self.channels = 3
