@@ -1,11 +1,12 @@
-torch==1.6.0
-torchvision==0.7.0
+torch==1.12.1+cu113
+torchvision==00.13.1+cu113
 python-gflags==3.1.2
 pandas==0.24.2
 pillow==6.0.0
-numpy==1.16.4
+numpy==1.21.6
 opencv-python==4.1.0.25
 imageio==2.5.0
+tensorboard==2.4.1
 tensorboardX==1.8
 Shapely==1.6.4
 imgaug==0.2.9
@@ -13,6 +14,13 @@ lmdb==0.98
 lxml==4.5.0
 pyarrow==0.17.1
 wandb==0.10.25
-tensorboard==2.4.1
-# https://pytorch.org/get-started/previous-versions/
-# pip install torch==1.6.0+cpu torchvision==0.7.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+torchfile==0.1.0
+onnx==1.14.1
+onnxruntime==1.14.1
+onnxruntime-tools==1.7.0
+h5py==3.8.0
+
+# Python, torch and torchvision depends on which CUDA you have. I use Cuda 11.3 
+# https://pytorch.org/get-started/previous-versions/ 
+# pip install torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
+#Python 3.7.3

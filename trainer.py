@@ -1,10 +1,15 @@
 import os
+import shutil
 import sys
 import argparse
 import traceback
+import numpy as np
+import tensorboardX
 import torch
 import torch.nn as nn
+from datetime import datetime
 from lib import utility
+
 
 os.environ["MKL_THREADING_LAYER"] = "GNU"
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
@@ -68,20 +73,15 @@ def train_worker(world_rank, world_size, nodes_size, config_name, pretrained_wei
     optimizer = utility.get_optimizer(config, net_module)
     scheduler = utility.get_scheduler(config, optimizer)
 
-    # load pretrain model
     if pretrained_weight is not None:
         if not os.path.exists(pretrained_weight):
             pretrained_weight = os.path.join(config.work_dir, pretrained_weight)
         try:
             checkpoint = torch.load(pretrained_weight)
-            #checkpoint["net"].pop("e2h_transform.weight")#
-            #checkpoint["net"].pop("out_edgemaps.0.conv.weight")#
-            #checkpoint["net"].pop("out_edgemaps.0.conv.bias")#
+
             net.load_state_dict(checkpoint["net"], strict=False)
             if net_ema is not None:
-                #checkpoint["net_ema"].pop("e2h_transform.weight")#
-                #checkpoint["net_ema"].pop("out_edgemaps.0.conv.weight")#
-                #checkpoint["net_ema"].pop("out_edgemaps.0.conv.bias")#
+
                 net_ema.load_state_dict(checkpoint["net_ema"], strict=False)
             #start_epoch = 0#
             start_epoch = checkpoint["epoch"]
@@ -116,6 +116,7 @@ def train_worker(world_rank, world_size, nodes_size, config_name, pretrained_wei
     best_metric = None
     best_net = None
     for epoch in range(config.max_epoch+1):
+        train_loader.dataset.set_epoch(epoch)
         try:
             # memory ocupation
             if config.use_gpu and world_rank == 0:
@@ -196,12 +197,13 @@ def train_worker(world_rank, world_size, nodes_size, config_name, pretrained_wei
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train script")
-    parser.add_argument("--config_name", type=str, default="alignment", help="set configure file name")
-    parser.add_argument("--pretrained_weight", type=str, default=None, help="set pretrained model file name, if ignored then train the network without pretrain model")
+    parser = argparse.ArgumentParser(description="Entry Fuction")
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "test"], help="train or test Facial Landmark Detector")
+    parser.add_argument("--config_name", type=str, default="alignment", choices=["alignment"], help="set configure file name")
+    parser.add_argument("--pretrained_weight", type=str, default=None, help="set pretrained Facial Landmark Detector model file name, if ignored then train the network without pretrain model")
     parser.add_argument("--work_dir", type=str, default="./", help="the directory of workspace")
-    parser.add_argument("--device_ids", type=str, default="-1", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
-    parser.add_argument("--local_rank", type=int, default=-1, help="rank in local processes")
+    parser.add_argument('--device_ids', type=str, default="0,1,2,3", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
+    parser.add_argument('--norm_type', type=str, default='default', help='default, ocular, pupil')
     args = parser.parse_args()
 
     if args.local_rank == -1:
@@ -210,11 +212,3 @@ if __name__ == "__main__":
               pretrained_weight=args.pretrained_weight,
               work_dir=args.work_dir,
               device_ids=device_ids)
-    """
-    else:
-        world_size = int(os.getenv("WORLD_SIZE"))
-        gpus_per_node = torch.cuda.device_count()
-        nodes_size = world_size // gpus_per_node
-        world_rank = int(os.getenv("WORLD_RANK")) * gpus_per_node + args.local_rank
-        train_worker(world_rank, world_size, nodes_size, args.config_name, args.pretrained_weight, args.work_dir)
-    """

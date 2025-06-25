@@ -15,6 +15,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 sys.path.append("./")
 from lib.dataset.augmentation import Augmentation
+from lib.dataset.occlusionAugm import occlusion_augmentation
+
 
 import torch
 import torch.nn.functional as F
@@ -23,24 +25,23 @@ from torch.utils.data import Dataset
 
 class AlignmentDataset(Dataset):
 
-    def __init__(self, tsv_flie, pic_dir="", label_num=1, transform=None, 
+    def __init__(self, tsv_file, pic_dir="", label_num=1, transform=None, 
         width=256, height=256, channels=3,
         means=(127.5, 127.5, 127.5), scale=1/127.5,
         classes_num=None, crop_op=True, aug_prob=0.0, edge_info=None, flip_mapping=None, is_train=True, debug=False):
-        super(AlignmentDataset, self).__init__()
-        
-        self.items = pd.read_csv(tsv_flie, sep="\t")
+        super(AlignmentDataset, self).__init__()       
+
+        self.items = pd.read_csv(tsv_file, sep="\t")    
         self.pic_dir = pic_dir
-        assert label_num == len(classes_num)
+        assert label_num == len(classes_num), "Mismatch between label_num and classes_num"
         self.landmark_num = classes_num[0]
-        #self.edge_num = classes_num[1]
-        #self.point_num = classes_num[2]
+
         self.transform = transform
-        
         self.image_width = width
         self.image_height = height
         self.channels = channels
-        assert self.image_width == self.image_height
+
+        assert self.image_width == self.image_height, "Width and height must be equal"
         
         self.means = means
         self.scale = scale  
@@ -49,6 +50,7 @@ class AlignmentDataset(Dataset):
         self.edge_info = edge_info
         self.is_train = is_train
         self.debug = debug
+
         std_lmk_5pts = np.array([
             196.0, 226.0,
             316.0, 226.0,
@@ -148,13 +150,7 @@ class AlignmentDataset(Dataset):
             part[:, 0] = np.clip(part[:, 0], 0, w-1)
             part[:, 1] = np.clip(part[:, 1], 0, h-1)
             edgemap = self._polylines(edgemap, part, is_closed, 255, thickness)
-            
-            #offset = 0.5
-            #part = (part + offset).astype(np.int32)
-            #part[:, 0] = np.clip(part[:, 0], 0, w-1)
-            #part[:, 1] = np.clip(part[:, 1], 0, h-1)
-            #cv2.polylines(edgemap, [part], is_closed, 255, thickness, cv2.LINE_AA)
-            
+                 
             edgemaps.append(edgemap)
         edgemaps = np.stack(edgemaps, axis=0) / 255.0
         edgemaps = torch.from_numpy(edgemaps).float().unsqueeze(0)
@@ -170,19 +166,15 @@ class AlignmentDataset(Dataset):
                 x = np.append(x, x[0])
                 y = np.append(y, y[0])
             tck, u = interpolate.splprep([x, y], s=0, per=is_closed, k=3)
-            #bins = (x.shape[0] - 1) * density + 1
-            #lmk_x, lmk_y = interpolate.splev(np.linspace(0, 1, bins), f)
             intervals = np.array([])
             for i in range(len(u)-1):
                 intervals = np.concatenate((intervals, np.linspace(u[i], u[i+1], density, endpoint=False)))
             if not is_closed:
                 intervals = np.concatenate((intervals, [u[-1]]))
             lmk_x, lmk_y = interpolate.splev(intervals, tck, der=0)
-            #der_x, der_y = interpolate.splev(intervals, tck, der=1)
+
             curve_lmks = np.stack([lmk_x, lmk_y], axis=-1)
-            #curve_ders = np.stack([der_x, der_y], axis=-1)
-            #origin_indices = np.arange(0, curve_lmks.shape[0], density)
-            
+
             return curve_lmks
         except:
             return lmks
@@ -199,7 +191,6 @@ class AlignmentDataset(Dataset):
             image_path = os.path.join(self.pic_dir, image_path)
 
         try:
-            #img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)#HWC, BGR, [0-255]
             img = cv2.imread(image_path, cv2.IMREAD_COLOR)#HWC, BGR, [0-255]
             assert img is not None and len(img.shape) == 3 and img.shape[2] == 3
         except:
@@ -286,16 +277,37 @@ class AlignmentDataset(Dataset):
             # [-1, +1] -> [-0.5, SIZE-0.5]
             des_points = ((points + 1) * torch.tensor([w, h]).to(points).view(1, 1, 2) - 1) / 2
         return des_points
+    
+    def parse_landmark_column(cell, num_points):
+        if isinstance(cell, str):
+            pts = np.array([float(x) for x in cell.split(",")], dtype=np.float32)
+        else:
+            pts = np.array(cell, dtype=np.float32)
+        return pts.reshape(num_points, 2)
 
 
     def __len__(self):
         return len(self.items)
+    
+    
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
 
-
+    def get_min_visible_ratio(self, epoch):
+        if epoch < 5:
+            return 1.0
+        elif epoch < 15:
+            return 0.8
+        elif epoch < 25:
+            return 0.5
+        return 0.0
+    
     def __getitem__(self, index):
         sample = dict()
         
         image_path = self.items.iloc[index, 0]
+        image_path = image_path.replace('\\./', '/').replace('\\', '/')
+        image_path = os.path.normpath(image_path)
         landmarks_5pts = self.items.iloc[index, 1]
         landmarks_5pts = np.array(list(map(float, landmarks_5pts.split(","))), dtype=np.float32).reshape(5, 2)
         landmarks_target = self.items.iloc[index, 2]
@@ -309,6 +321,7 @@ class AlignmentDataset(Dataset):
 
         # image path
         sample["image_path"] = image_path
+        
 
         # image id
         #sample["image_id"] = self._image_id(image_path)
@@ -317,27 +330,49 @@ class AlignmentDataset(Dataset):
         img = self._load_image(image_path)# HWC, BGR, [0, 255]
         assert img is not None
 
-        # augmentation
+
+
+
+        # original  augmentation
         img, landmarks_target = \
             self.augmentation.process(img, landmarks_target, landmarks_5pts, scale, center_w, center_h)
+        
+        
+        # Initialize visibility mask
+        visibility = np.ones(self.landmark_num, dtype=np.float32)
 
+        if self.is_train:
+            img, visibility = occlusion_augmentation(img, landmarks_target, visibility, occlusion_prob=0.3, max_occ_size=20)
+
+        
         landmarks = self._norm_points(torch.from_numpy(landmarks_target), self.image_height, self.image_width)
         edgemap = self._generate_edgemap(landmarks_target)
         pointmap = self._generate_pointmap(landmarks_target)
         sample["label"] = [landmarks, edgemap, pointmap]
+
+        sample["visibility"] = torch.from_numpy(visibility)
         
         # visualized data
         if self.debug:
-            # landmarks
             vis_img = img.copy()
+
+            # Convert image to uint8 if needed
+            if vis_img.dtype != np.uint8:
+                vis_img = np.clip(vis_img, 0, 255)
+                vis_img = vis_img.astype(np.uint8)
+
             for i in range(self.landmark_num):
                 x = int(landmarks_target[i][0] + 0.5)
                 y = int(landmarks_target[i][1] + 0.5)
-                cv2.circle(vis_img, (x, y), 1, (255, 255, 255), -1)
-                cv2.putText(vis_img, str(i), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.2, (255, 255, 255), 1)
-            cv2.imshow("landmarks", vis_img)
+
+                color = (0, 255, 0) if visibility[i] == 1.0 else (0, 0, 255)  # green = visible, red = occluded
+                cv2.circle(vis_img, (x, y), 2, color, -1)
+                cv2.putText(vis_img, str(i), (x + 1, y - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
+
+            cv2.imshow("landmarks_with_occlusion", vis_img)
             cv2.imshow("edgemap", edgemap[0].numpy())
             cv2.imshow("pointmap", pointmap[0].numpy())
+
             if cv2.waitKey(0) == 27:
                 self.debug = False
         
@@ -346,8 +381,11 @@ class AlignmentDataset(Dataset):
         img[0,:,:] = (img[0,:,:] - self.means[0]) * self.scale
         img[1,:,:] = (img[1,:,:] - self.means[1]) * self.scale
         img[2,:,:] = (img[2,:,:] - self.means[2]) * self.scale
+
+
         sample["data"] = torch.from_numpy(img)# CHW, BGR, [-1, 1]
         
         sample["tags"] = tags
         
-        return sample
+        return sample    
+

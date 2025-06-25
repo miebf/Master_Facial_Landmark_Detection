@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 from skimage import transform
 from scipy import interpolate
+import time
 
 # pytorch
 import torch
@@ -108,8 +109,10 @@ class Alignment:
             if config.logger is not None:
                 config.logger.info("Loaded configure file %s: %s" % (config_name, config.id))
                 config.logger.info("\n" + "\n".join(["%s: %s" % item for item in config.__dict__.items()]))
-
-            net = utility.get_net(config)
+            if config.enable_quantization:
+                net = utility.get_netQTA(config) ##get_net
+            else:
+                net = utility.get_net(config)
             if device_ids == [-1]:
                 checkpoint = torch.load(model_path, map_location="cpu")
             else:
@@ -164,6 +167,7 @@ class Alignment:
     def analyze(self, image, landmarks, scale, center_w, center_h):
         input_tensor, matrix = self.preprocess(image, landmarks, scale, center_w, center_h)
 
+        start_time = time.time()
         if self.dl_framework == "pytorch":
             with torch.no_grad():
                 output = self.alignment(input_tensor)
@@ -173,12 +177,15 @@ class Alignment:
             landmarks = torch.from_numpy(output[-1])
         else:
             assert False
+        end_time = time.time()
+
+        inference_time_ms = (end_time - start_time) * 1000  # convert to ms
 
         landmarks = self.denorm_points(landmarks)
         landmarks = landmarks.data.cpu().numpy()[0]
         landmarks = self.postprocess(landmarks, np.linalg.inv(matrix))
 
-        return landmarks
+        return landmarks, inference_time_ms
 
 
 def L2(p1, p2):
@@ -207,6 +214,10 @@ def NME(landmarks_gt, landmarks_pv):
 
 
 def evaluate(config_name, work_dir, model_path, metadata_path, image_dir, device_ids, mode):
+    failure_threshold = 0.1  # For FR10%
+    failure_count = 0
+    
+    
     if model_path.endswith("onnx"):
         dl_framework = "onnx"
     else:
@@ -214,22 +225,42 @@ def evaluate(config_name, work_dir, model_path, metadata_path, image_dir, device
     alignment = Alignment(config_name, work_dir, model_path, dl_framework, device_ids)
 
     nme_sum = 0
+    total_inference_time_ms = 0
+    num_samples = 0
     for k, line in enumerate(open(metadata_path)):
         item = line.strip().split("\t")
         image_name, landmarks_5pts, landmarks_gt, scale, center_w, center_h = item[:6]
+
         image_path = os.path.join(image_dir, image_name)
+        image_path = image_path.replace('\\./', '/').replace('\\', '/')
+        image_path = os.path.normpath(image_path)
+        print("This is the image path: ", image_path)
+
+        # Load image with error handling
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"[WARNING] Failed to load image at: {image_path}")
+            continue  # Skip to the next image
+
+
         landmarks_5pts = np.array(list(map(float, landmarks_5pts.split(","))), dtype=np.float32).reshape(5, 2)
         landmarks_gt = np.array(list(map(float, landmarks_gt.split(","))), dtype=np.float32).reshape(-1, 2)
         scale, center_w, center_h = float(scale), float(center_w), float(center_h)
         
         image = cv2.imread(image_path)
-        landmarks_pv = alignment.analyze(image, landmarks_5pts, scale, center_w, center_h)
+        landmarks_pv, inference_time_ms = alignment.analyze(image, landmarks_5pts, scale, center_w, center_h)
         
+        total_inference_time_ms += inference_time_ms
+        num_samples += 1
+
         # NME
         if mode == "nme":
             nme = NME(landmarks_gt, landmarks_pv)
             nme_sum += nme
+            if nme > failure_threshold:
+                failure_count += 1
             print("Current NME(%d): %f" % (k+1, (nme_sum / (k+1))))
+            print(f"Inference time fo image: {inference_time_ms:.2f} ms")
         else:
             # visualization
             for i in range(landmarks_pv.shape[0]):
@@ -240,16 +271,19 @@ def evaluate(config_name, work_dir, model_path, metadata_path, image_dir, device
             if cv2.waitKey(0) == 27:
                 break
     if mode == "nme":
+        fr10 = (failure_count / num_samples) * 100
+        print("FR@10%%: %.2f%% (%d out of %d failed)" % (fr10, failure_count, num_samples))
         print("Final NME: %f" % (nme_sum / k))
+        print(f"Average inference time over {num_samples} samples: {total_inference_time_ms / num_samples:.2f} ms")
     else:
         cv2.destroyAllWindows()
-
+#python evaluate.py --mode=nme --config_name=alignment --model_path=model/alignment/58a1c66a-c59a-493f-a1ff-085ff2989eb9/train.onnx --metadata_path=C:/Users/miebe/Python_projects/Masters/Facial_Landmark_Detection_Edition2/data/alignment/COFW/test.tsv --image_dir=C:/Users/miebe/Python_projects/Masters/Facial_Landmark_Detection_Edition2/data/alignment/COFW --device_ids=0
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluation script")
     parser.add_argument("--config_name", type=str, default="alignment", help="set configure file name")
     parser.add_argument("--work_dir", type=str, default="./", help="the directory of workspace")
-    parser.add_argument("--model_path", type=str, default="./model/alignment/300W/train.onnx", help="the path of model")
+    parser.add_argument("--model_path", type=str, default="./model/alignment/300W/train.onnx (Full path=)", help="the path of model")
     parser.add_argument("--metadata_path", type=str, default="./data/alignment/300W/test.tsv", help="the path of metadata")
     parser.add_argument("--image_dir", type=str, default=r"", help="the root directory of images")
     parser.add_argument("--device_ids", type=str, default="-1", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")

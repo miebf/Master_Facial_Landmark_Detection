@@ -7,13 +7,12 @@ from tester import test
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Entry Fuction")
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "test"], help="train or test")
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "test"], help="train or test Facial Landmark Detector")
     parser.add_argument("--config_name", type=str, default="alignment", choices=["alignment"], help="set configure file name")
-    parser.add_argument("--pretrained_weight", type=str, default=None, help="set pretrained model file name, if ignored then train the network without pretrain model")
+    parser.add_argument("--pretrained_weight", type=str, default=None, help="set pretrained Facial Landmark Detector model file name, if ignored then train the network without pretrain model")
     parser.add_argument("--work_dir", type=str, default="./", help="the directory of workspace")
-    #parser.add_argument("--device_ids", type=str, default="-1", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
-    #parser.add_argument('--device_ids', type=str, default="0", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
     parser.add_argument('--device_ids', type=str, default="0,1,2,3", help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
+    parser.add_argument('--norm_type', type=str, default='default', help='default, ocular, pupil')
     args = parser.parse_args()
 
     print("mode is %s, config_name is %s, pretrained_weight is %s, work_dir is %s, device_ids is %s" % (args.mode, args.config_name, args.pretrained_weight, args.work_dir, args.device_ids))

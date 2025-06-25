@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from conf.base import Base
 
 class Alignment(Base):
@@ -10,11 +11,11 @@ class Alignment(Base):
         
         self.note = ""
         
-        self.net = "stackedHGnet_v1"
-        self.nstack = 4
+        self.net = "ADNetMobileV3MultiStage"
+        self.nstack = 2
         self.loader_type = "alignment"
-        self.data_definition = "300W" # COFW, 300W, WFLW
-        self.batch_size = 32  ##test 32 ###########################################################################################################################
+        self.data_definition = "WFLW" # COFW, 300W, WFLW
+        self.batch_size = 8 
         self.channels = 3
         self.width = 256
         self.height = 256
@@ -26,10 +27,9 @@ class Alignment(Base):
         self.display_iteration = 10
         self.val_epoch = 10
         self.model_save_epoch = 10
-        #self.milestones = [100, 150, 180]
-        #self.max_epoch = 200
-        self.milestones = [200, 350, 450]
-        self.max_epoch = 500
+        self.milestones = [100, 150, 180]
+        self.max_epoch = 200
+        self.norm_type = 'default'
         
         self.optimizer = "adam"
         self.learn_rate = 0.001
@@ -39,11 +39,7 @@ class Alignment(Base):
         
         self.ema = True
         
-        # extra
-        self.add_coord = True
-        self.pool_type = "origin" # origin, blur
-        self.use_multiview = False
-        
+
         # COFW
         if self.data_definition == "COFW":
             self.edge_info = (
@@ -55,10 +51,15 @@ class Alignment(Base):
                 (True, (22, 26, 23, 27)), # LowerLip
                 (True, (22, 24, 23, 25)), # UpperLip
             )
-            #self.nme_left_index = 8 # ocular
-            #self.nme_right_index = 9 # ocular
-            self.nme_left_index = 16 # pupils
-            self.nme_right_index = 17 # pupils
+            if self.norm_type == 'ocular':
+                self.nme_left_index = 8  # ocular
+                self.nme_right_index = 9  # ocular
+            elif self.norm_type in ['pupil', 'default']:
+                self.nme_left_index = 16  # pupil
+                self.nme_right_index = 17  # pupil
+            else:
+                raise NotImplementedError 
+
             self.classes_num = self.nstack * [29, 7, 29]
             self.crop_op = True
             self.flip_mapping = (
@@ -77,8 +78,15 @@ class Alignment(Base):
                 (True, (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59)), # OuterLip
                 (True, (60, 61, 62, 63, 64, 65, 66, 67)), # InnerLip
             )
-            self.nme_left_index = 36 # ocular
-            self.nme_right_index = 45 # ocular
+            if self.norm_type in ['ocular', 'default']:
+                self.nme_left_index = 36  # ocular
+                self.nme_right_index = 45  # ocular
+            elif self.norm_type == 'pupil':
+                self.nme_left_index = [36, 37, 38, 39, 40, 41]  # pupil
+                self.nme_right_index = [42, 43, 44, 45, 46, 47]  # pupil
+            else:
+                raise NotImplementedError
+
             self.classes_num = self.nstack * [68, 9, 68]
             self.crop_op = True
             self.flip_mapping = (
@@ -101,10 +109,15 @@ class Alignment(Base):
                 (True, (76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87)), # OuterLip
                 (True, (88, 89, 90, 91, 92, 93, 94, 95)), # InnerLip
             )
-            #self.nme_left_index = 96 # pupils
-            #self.nme_right_index = 97 # pupils
-            self.nme_left_index = 60 # ocular
-            self.nme_right_index = 72 # ocular
+            if self.norm_type in ['ocular', 'default']:
+                self.nme_left_index = 60  # ocular
+                self.nme_right_index = 72  # ocular
+            elif self.norm_type == 'pupil':
+                self.nme_left_index = 96  # pupils
+                self.nme_right_index = 97  # pupils
+            else:
+                raise NotImplementedError
+                
             self.classes_num = self.nstack * [98, 9, 98]
             self.crop_op = True
             self.flip_mapping = (
@@ -123,15 +136,16 @@ class Alignment(Base):
         self.loss_weights = []
         self.criterions = []
         self.metrics = []
+        self.alpha = 1.0
+        self.beta = 0.1
         for i in range(self.nstack):
             factor = (2 ** i) / (2 ** (self.nstack - 1))
             self.loss_weights += [factor * weight for weight in [1.0, 10.0, 10.0]]
-            self.criterions += ["AnisotropicDirectionLoss", "AWingLoss", "AWingLoss"]
+            self.criterions += ["CompositeCoordLoss", "HeatmapFocalLoss", "HeatmapFocalLoss"] 
             self.metrics += ["NME", None, None]
         self.key_metric_index = (self.nstack - 1) * 3
         self.use_tags = False
         
-        # data
         self.train_tsv_file = os.path.join(self.data_dir, self.data_definition, "train.tsv")
         self.val_tsv_file   = os.path.join(self.data_dir, self.data_definition, "test.tsv")
         self.test_tsv_file  = os.path.join(self.data_dir, self.data_definition, "test.tsv")

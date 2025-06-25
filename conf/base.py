@@ -1,5 +1,6 @@
 import os
 import uuid
+import numpy as np
 import wandb
 import logging
 from tensorboardX import SummaryWriter
@@ -19,17 +20,23 @@ class Base:
         self.model_dir = self.work_dir + "/model/%s/%s/" % (self.type, self.id)
         self.log_dir = self.work_dir + "/log/%s/%s/" % (self.type, self.id)
 
-        #data
-        self.train_tsv_file = os.path.join(self.data_dir, "train.tsv")
-        self.train_pic_dir  = os.path.join(self.data_dir, "rawImages/")#images
-        self.train_num_workers = 0
+        #Data directories
+
+        self.train_pic_dir  = os.path.join(self.data_dir, "rawImages/")
+        self.train_num_workers = 1 
 
         self.val_tsv_file   = os.path.join(self.data_dir, "val.tsv")
-        self.val_pic_dir    = os.path.join(self.data_dir, "rawImages/")#images
-        self.val_num_workers = 0
+        self.val_pic_dir    = os.path.join(self.data_dir, "rawImages/")
+        self.val_num_workers = 0 
 
         self.test_tsv_file  = os.path.join(self.data_dir, "test.tsv")
-        self.test_pic_dir   = os.path.join(self.data_dir, "rawImages/")#images
+        self.test_pic_dir   = os.path.join(self.data_dir, "rawImages/")
+
+
+        self.num_workers = 1 
+
+        self.output_path = work_dir
+
         self.test_num_workers = 0
 
         self.debug = False
@@ -37,7 +44,7 @@ class Base:
         self.loader_type = "alignment"
 
         #train
-        self.batch_size = 32  #test 32 ###########################################################################################################################
+        self.batch_size = 8 
         self.val_batch_size = 1
         self.test_batch_size = 1
         self.channels = 3
@@ -54,7 +61,7 @@ class Base:
         self.val_epoch = 1
         self.milestones = [50, 80]
         self.max_epoch = 100
-
+        
         self.nstack = 1
         self.classes_num = [1000]
         self.label_num = len(self.classes_num)
@@ -68,7 +75,7 @@ class Base:
         self.scheduler = "MultiStepLR"
         self.gamma = 0.1
 
-        self.net = "resnet18"
+        self.net = "MobileNetV3" 
 
         self.loss_weights = [1.0]
         self.criterions = ["SoftmaxWithLoss"]
@@ -96,7 +103,7 @@ class Base:
         self.writer = SummaryWriter(log_dir=self.log_dir, comment=self.type)
 
         # wandb
-        wandb_key = "3462de1f0c2817d194002922c8ffd438ff4c5b6c"# to be changed to yours.
+        wandb_key = "bd03591dba7edb7184cec664430ac13b085b6855"# Change to your key.
         if wandb_key is not None:
             wandb.login(key=wandb_key)
             wandb.init(project=self.type, dir=self.log_dir, 

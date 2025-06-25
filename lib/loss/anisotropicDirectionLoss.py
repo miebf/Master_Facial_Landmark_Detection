@@ -51,6 +51,7 @@ class AnisotropicDirectionLoss(nn.Module):
         previous_neighbors = self.neighbors[0:point_num, 1]
         next_neighbors = self.neighbors[0:point_num, 2]
     
+    
         # condition 1
         bi_normal_vector = F.normalize(landmarks[:, previous_neighbors] - landmarks[:, itself], p=2, dim=-1) + \
                            F.normalize(landmarks[:, next_neighbors] - landmarks[:, itself], p=2, dim=-1)
@@ -165,27 +166,30 @@ class AnisotropicDirectionLoss(nn.Module):
     def forward(self, output, groundtruth, heatmap=None, landmarks=None):
         """
             input:  b x n x 2
-            output: b x n x 1
-        """
-        normal_vector = self._get_normals_from_neighbors(groundtruth) # b x n x 2, [-1, 1]
-        tangent_vector = self._inverse_vector(normal_vector) # b x n x 2, [-1, 1]
-
-        pv_gt = output - groundtruth # b x n x 2, [-1, 1]
-
-        normal_force = torch.mul(pv_gt, normal_vector).sum(dim=-1, keepdim=False) # b x n
-        tangent_force = torch.mul(pv_gt, tangent_vector).sum(dim=-1, keepdim=False) # b x n
         
-        loss_lambda = self._get_loss_lambda(pv_gt.detach(), normal_force.detach(), tangent_force.detach(), normal_vector.detach(), tangent_vector.detach(), heatmap.detach(), landmarks.detach())
+    """
+        normal_vector = self._get_normals_from_neighbors(groundtruth)  # b x n x 2
+        tangent_vector = self._inverse_vector(normal_vector)           # b x n x 2
+
+        pv_gt = output - groundtruth  # b x n x 2
+
+        normal_force = torch.mul(pv_gt, normal_vector).sum(dim=-1)      # b x n
+        tangent_force = torch.mul(pv_gt, tangent_vector).sum(dim=-1)    # b x n
+
+        loss_lambda = self._get_loss_lambda(pv_gt.detach(), normal_force.detach(), tangent_force.detach(), 
+                                        normal_vector.detach(), tangent_vector.detach(), 
+                                        heatmap.detach() if heatmap is not None else None, 
+                                        landmarks.detach() if landmarks is not None else None)
 
         alpha = 2 * loss_lambda / (loss_lambda + 1.0)
         belta = 2 * 1 / (loss_lambda + 1.0)
-        delta_2_asy = alpha * normal_force.pow(2) + belta * tangent_force.pow(2) # b x n
+        delta_2_asy = alpha * normal_force.pow(2) + belta * tangent_force.pow(2)  # b x n
 
-        delta_2_sy = pv_gt.pow(2).sum(dim=-1, keepdim=False) # b x n
+        delta_2_sy = pv_gt.pow(2).sum(dim=-1)  # b x n
 
         delta_2 = torch.where(normal_vector.norm(p=2, dim=-1) < 0.5, delta_2_sy, delta_2_asy)
 
-        delta = delta_2.clamp(min=1e-128).sqrt() # delta_2.sqrt()
+        delta = delta_2.clamp(min=1e-128).sqrt()
         loss = torch.where(delta < self.scale, 0.5 / self.scale * delta_2, delta - 0.5 * self.scale)
 
         return loss.mean()

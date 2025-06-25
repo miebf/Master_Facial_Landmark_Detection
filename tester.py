@@ -21,6 +21,7 @@ def test(config_name, pretrained_weight, work_dir, device_ids):
     # model
     net = utility.get_net(config)
     model_path = os.path.join(config.model_dir, "train.pkl") if pretrained_weight is None else pretrained_weight
+    print("This is model path: ", model_path)
     if device_ids == [-1]:
         checkpoint = torch.load(model_path, map_location="cpu")
     else:

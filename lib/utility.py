@@ -66,12 +66,12 @@ def get_dataloader(config, data_type, world_rank=0, world_size=1):
     loader = None
     if data_type == "train":
         dataset = get_dataset(
-                              config,
-                              config.train_tsv_file,
-                              config.train_pic_dir,
-                              config.label_num,
-                              config.loader_type,
-                              is_train=True)
+                            config,
+                            config.train_tsv_file,
+                            config.train_pic_dir,
+                            config.label_num,
+                            config.loader_type,
+                            is_train=True)
         if world_size > 1:
             sampler = DistributedSampler(dataset, rank=world_rank, num_replicas=world_size, shuffle=True)
             loader = DataLoader(dataset, sampler=sampler, batch_size=config.batch_size // world_size, num_workers=config.train_num_workers, pin_memory=True, drop_last=True)
@@ -142,13 +142,10 @@ def get_scheduler(config, optimizer):
 
 def get_net(config):
     net = None
-    if config.net == "stackedHGnet_v1":
-        net = stackedHGNetV1.StackedHGNetV1(classes_num=config.classes_num, \
+    if config.net == "ADNetMobileV3MultiStage":
+        net = ADNetMobileV3MultiStage.ADNetMobileV3MultiStage(classes_num=config.classes_num, \
                                             edge_info=config.edge_info, \
-                                            nstack=config.nstack, \
-                                            add_coord=config.add_coord, \
-                                            pool_type=config.pool_type, \
-                                            use_multiview=config.use_multiview)
+                                            nstack=config.nstack)
     else:
         assert False
     return net
@@ -159,10 +156,16 @@ def get_criterions(config):
     for k in range(config.label_num):
         if config.criterions[k] == "AWingLoss":
             criterion = awingLoss.AWingLoss()
+        elif config.criterions[k] == "HeatmapFocalLoss":
+            criterion = heatmapFocalLoss.HeatmapFocalLoss()
+        elif config.criterions[k] == "HybridHeatmapLoss":
+            criterion = hybridHeatmapLoss.HybridHeatmapLoss()      
         elif config.criterions[k] == "AnisotropicDirectionLoss":
             criterion = anisotropicDirectionLoss.AnisotropicDirectionLoss(loss_lambda=config.loss_lambda, edge_info=config.edge_info)
         elif config.criterions[k] == "SmoothL1Loss":
             criterion = smoothL1Loss.SmoothL1Loss()
+        elif config.criterions[k] == "CompositeCoordLoss":
+            criterion = compositeCoordLoss.CompositeCoordLoss(loss_lambda=config.loss_lambda, edge_info=config.edge_info)
         else:
             assert False
         criterions.append(criterion)
@@ -234,9 +237,9 @@ def forward(config, test_loader, net):
         config.logger.info("Forward process, Dataset size: %d, Batch size: %d" % (dataset_size, batch_size))
     for i, sample in enumerate(test_loader):
         input = sample["data"].float().to(config.device, non_blocking=True)
-        labels = list()
+        labels = list()            #Remove
         if isinstance(sample["label"], list):
-            for label in sample["label"]:
+            for label in sample["label"]: 
                 label = label.float().to(config.device, non_blocking=True)
                 labels.append(label)
         else:
@@ -269,15 +272,13 @@ def forward(config, test_loader, net):
     return output_pd, [round(sum_metric / max(total_cnt, 1), 6) for sum_metric, total_cnt in ave_metrics]
 
 
-def compute_loss(config, criterions, output, labels, tags=None, heatmap=None, landmarks=None):
+def compute_loss(config, criterions, output, labels, tags=None, heatmap=None, landmarks=None, visibility=None):
     if config.use_tags and tags is not None:
         # B x C
         #s = torch.from_numpy(tags)
         s = tags
         N, C = s.shape
         s_c = s.sum(axis=0)
-        #s_n = s.sum(axis=1)
-        #M = torch.sum(s_n == 0)
 
         sigma = torch.zeros(size=(C,), dtype=torch.float32).to(s)
         for c in range(C):
@@ -295,12 +296,21 @@ def compute_loss(config, criterions, output, labels, tags=None, heatmap=None, la
     sum_loss = 0
     losses = list()
     for k in range(config.label_num):
+
         if config.criterions[k] == "AWingLoss":
             loss = criterions[k](output[k], labels[k])
         elif config.criterions[k] == "AnisotropicDirectionLoss":
+            num_landmarks = output[k].shape[1]
             loss = criterions[k](output[k], labels[k], heatmap=heatmap, landmarks=landmarks)
+        elif config.criterions[k] == "HeatmapFocalLoss":
+            loss = criterions[k](output[k], labels[k])
+        elif config.criterions[k] == "HybridHeatmapLoss":
+            loss = criterions[k](output[k], labels[k])
         elif config.criterions[k] == "SmoothL1Loss":
             loss = criterions[k](output[k], labels[k])
+        elif config.criterions[k] == "CompositeCoordLoss":
+
+            loss = criterions[k](output[k], labels[k], heatmap=heatmap, landmarks=landmarks, visibility=visibility)
         else:
             assert False
         loss = batch_weight * loss
@@ -350,11 +360,16 @@ def forward_backward(config, train_loader, net_module, net, net_ema, criterions,
         else:
             tags = None
         
+        # get visibility mask
+        visibility = None
+        if "visibility" in sample:
+            visibility = sample["visibility"].float().to(config.device, non_blocking=True)
+        
         # forward
         output, heatmap, landmarks = net_module(input)
 
         # loss
-        losses, sum_loss = compute_loss(config, criterions, output, labels, tags, heatmap, landmarks)
+        losses, sum_loss = compute_loss(config, criterions, output, labels, tags, heatmap, landmarks, visibility)
         ave_losses = list(map(sum, zip(ave_losses, losses)))
         
         # metrics
@@ -459,9 +474,7 @@ def augmentation(image, pts=None, prob=0.0):
         iaa.MotionBlur(k=range(3, 15), angle=range(90), direction=[-1.0, 1.0]),
         iaa.JpegCompression(range(20, 100)),
         iaa.GammaContrast(np.concatenate((np.arange(0.5, 1.0, 0.1), np.arange(1.0, 2.0, 0.2)))),
-        #iaa.Sometimes(0.2, iaa.Superpixels(p_replace=(0, 1.0), n_segments=(20, 100))),
-        #iaa.Sometimes(0.1, iaa.Fog()),
-        #iaa.CoarseDropout(p=(0.1, 0.2), size_percent=(0.05, 0.1)),
+
         ], random_order=True)
     
     # augmentation
@@ -532,7 +545,15 @@ def pytorch2onnx(config, pytorch_model_path, onnx_model_path, opset_version=11):
 
     input_names = ["input"]
     output_names = ["output%03d" % i for i in range(config.label_num)]
-    torch.onnx.export(net, dummy_input, onnx_model_path, opset_version=opset_version, verbose=False, input_names=input_names, output_names=output_names)
+    torch.onnx.export(
+    net,
+    dummy_input,
+    onnx_model_path,
+    opset_version=opset_version,
+    verbose=False,
+    input_names=input_names,
+    output_names=output_names
+)
 
     if config.logger is not None:
         config.logger.info("Converted to ONNX")
