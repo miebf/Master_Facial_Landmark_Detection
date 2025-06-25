@@ -29,7 +29,7 @@ https://www.kaggle.com/datasets/toxicloser/ibug-300w-large-face-landmark-dataset
 - This repo follows the same data preprocess as in [ADNet](https://openaccess.thecvf.com/content/ICCV2021/papers/Huang_ADNet_Leveraging_Error-Bias_Towards_Normal_Direction_in_Face_Alignment_ICCV_2021_paper.pdf) so the metadata can be downloaded from [their repository](https://github.com/huangyangyu/ADNet/tree/main)
 - Put the metadata and dataset images into data/alignment/${dataset} folder
 - The dataset directory should look like this:
-'''text project-root/ 
+```text project-root/ 
 ├──data
      └──alignment
              ├──WFLW
@@ -44,20 +44,20 @@ https://www.kaggle.com/datasets/toxicloser/ibug-300w-large-face-landmark-dataset
                   ├──rawImages  ---300W images
                   ├──train.tsv
                   └──test.tsv
-  '''
+```
 
 ##Training
-'''text
+```text
 python main.py --mode=train --config_name=alignment --device_ids=0,1,2,3
-'''
+```
 ##Testing
-'''text
+```text
 python main.py --mode=test --config_name=alignment --pretrained_weight=${model_path} --device_ids=0
-'''
+```
 ##Evaluation
-'''text
+```text
 python evaluate.py --mode=nme --config_name=alignment --model_path=${model_path} --metadata_path==${metadata_path} --image_dir=${image_dir} --device_ids=0
-'''
+```
 
 
 ##Acknowledgments
