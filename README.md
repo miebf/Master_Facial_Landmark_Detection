@@ -7,7 +7,7 @@
 |---------------------|-------------------------------------------------------|
 | conf                | Configure files for model training                    | 
 | lib                 | Core file                                             | 
-| evaluate.py         | EScript for model evaulation                          | 
+| evaluate.py         | Script for model evaulation                          | 
 | main.py             | Entry script for training and resting                 | 
 | onnxQuant.py        | File for making a  model.onnx into a PTQ model.onnx   | 
 | requirements.txt    | The dependency list                                   | 
@@ -61,7 +61,7 @@ python evaluate.py --mode=nme --config_name=alignment --model_path=${model_path}
 
 
 ## Acknowledgments
-This repository is built on top of [ADNet](https://openaccess.thecvf.com/content/ICCV2021/papers/Huang_ADNet_Leveraging_Error-Bias_Towards_Normal_Direction_in_Face_Alignment_ICCV_2021_paper.pdf).
+This repository is built on top of [ADNet](https://openaccess.thecvf.com/content/ICCV2021/papers/Huang_ADNet_Leveraging_Error-Bias_Towards_Normal_Direction_in_Face_Alignment_ICCV_2021_paper.pdf). Thank you for your work.
 
 
   
